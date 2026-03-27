@@ -1,0 +1,279 @@
+esphome:
+  name: smart-blinds
+  friendly_name: Smart Blinds
+  on_boot:
+    priority: -10
+    then:
+      - script.execute: home_blinds
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+wifi:
+  ssid: "<SSID HERE>"
+  password: "<PASSWORD HERE>"
+  manual_ip:
+    static_ip: 192.168.50.55
+    gateway: 192.168.50.1
+    subnet: 255.255.255.0
+
+logger:
+
+api:
+
+ota:
+  - platform: esphome
+
+output:
+  - platform: gpio
+    id: stepper_enable
+    pin:
+      number: GPIO25
+      inverted: true
+
+binary_sensor:
+  - platform: gpio
+    id: blind_home
+    name: "Blind Home Sensor"
+    pin:
+      number: GPIO33
+      mode:
+        input: true
+        pullup: true
+      inverted: true
+    filters:
+      - delayed_on: 20ms
+      - delayed_off: 20ms
+
+stepper:
+  - platform: a4988
+    id: blind_stepper
+    step_pin: GPIO26
+    dir_pin:
+      number: GPIO27
+      inverted: true
+    max_speed: 1200 steps/s
+    acceleration: 400
+    deceleration: 400
+
+globals:
+  - id: steps_per_turn
+    type: int
+    restore_value: no
+    initial_value: '1600'
+
+  - id: total_steps
+    type: int
+    restore_value: no
+    initial_value: '8000'
+
+  - id: close_offset_steps
+    type: int
+    restore_value: no
+    initial_value: '2400'
+
+  - id: current_target
+    type: int
+    restore_value: yes
+    initial_value: '0'
+
+  - id: is_homed
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+  - id: home_failed
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+script:
+  - id: enable_motor
+    mode: restart
+    then:
+      - output.turn_on: stepper_enable
+      - delay: 100ms
+
+  - id: disable_motor
+    mode: restart
+    then:
+      - delay: 500ms
+      - output.turn_off: stepper_enable
+
+  - id: home_blinds
+    mode: restart
+    then:
+      - logger.log: "Starting homing"
+      - lambda: |-
+          id(home_failed) = false;
+          id(is_homed) = false;
+      - script.execute: enable_motor
+
+      # Start from a positive position so we can search negative toward home
+      - stepper.report_position:
+          id: blind_stepper
+          position: 5000
+      - stepper.set_target:
+          id: blind_stepper
+          target: 5000
+
+      # Search toward hall trigger with bounded travel
+      - repeat:
+          count: 400
+          then:
+            - if:
+                condition:
+                  binary_sensor.is_on: blind_home
+                then:
+                  - logger.log: "Hall sensor triggered, applying close offset"
+                  - stepper.set_target:
+                      id: blind_stepper
+                      target: !lambda 'return id(blind_stepper).current_position - id(close_offset_steps);'
+                  - wait_until:
+                      condition:
+                        lambda: 'return id(blind_stepper).current_position == id(blind_stepper).target_position;'
+                      timeout: 60s
+                  - stepper.report_position:
+                      id: blind_stepper
+                      position: 0
+                  - stepper.set_target:
+                      id: blind_stepper
+                      target: 0
+                  - lambda: |-
+                      id(current_target) = 0;
+                      id(is_homed) = true;
+                  - logger.log: "Homing complete"
+                  - script.execute: disable_motor
+                  - script.stop: home_blinds
+
+            - stepper.set_target:
+                id: blind_stepper
+                target: !lambda 'return id(blind_stepper).target_position - 20;'
+            - delay: 50ms
+
+      - logger.log: "ERROR: homing failed before max travel"
+      - lambda: |-
+          id(home_failed) = true;
+      - stepper.set_target:
+          id: blind_stepper
+          target: !lambda 'return id(blind_stepper).current_position;'
+      - script.execute: disable_motor
+
+button:
+  - platform: template
+    name: "Home Blinds"
+    on_press:
+      - script.execute: home_blinds
+
+  - platform: template
+    name: "Open One Turn"
+    on_press:
+      - script.execute: enable_motor
+      - lambda: |-
+          id(current_target) = id(blind_stepper).current_position + id(steps_per_turn);
+      - stepper.set_target:
+          id: blind_stepper
+          target: !lambda 'return id(current_target);'
+      - wait_until:
+          condition:
+            lambda: 'return id(blind_stepper).current_position == id(blind_stepper).target_position;'
+          timeout: 30s
+      - script.execute: disable_motor
+
+  - platform: template
+    name: "Close One Turn"
+    on_press:
+      - script.execute: enable_motor
+      - lambda: |-
+          id(current_target) = id(blind_stepper).current_position - id(steps_per_turn);
+      - stepper.set_target:
+          id: blind_stepper
+          target: !lambda 'return id(current_target);'
+      - wait_until:
+          condition:
+            lambda: 'return id(blind_stepper).current_position == id(blind_stepper).target_position;'
+          timeout: 30s
+      - script.execute: disable_motor
+
+cover:
+  - platform: template
+    name: "Bedroom Blinds"
+    id: bedroom_blinds
+    device_class: blind
+    has_position: true
+
+    lambda: |-
+      if (!id(is_homed)) {
+        return 0.0f;
+      }
+      float pos = (float) id(blind_stepper).current_position / (float) id(total_steps);
+      if (pos < 0.0f) pos = 0.0f;
+      if (pos > 1.0f) pos = 1.0f;
+      return pos;
+
+    open_action:
+      - if:
+          condition:
+            lambda: 'return id(is_homed);'
+          then:
+            - script.execute: enable_motor
+            - lambda: |-
+                id(current_target) = id(total_steps);
+            - stepper.set_target:
+                id: blind_stepper
+                target: !lambda 'return id(current_target);'
+            - wait_until:
+                condition:
+                  lambda: 'return id(blind_stepper).current_position == id(blind_stepper).target_position;'
+                timeout: 180s
+            - script.execute: disable_motor
+
+    close_action:
+      - if:
+          condition:
+            lambda: 'return id(is_homed);'
+          then:
+            - script.execute: enable_motor
+            - lambda: |-
+                id(current_target) = 0;
+            - stepper.set_target:
+                id: blind_stepper
+                target: 0
+            - wait_until:
+                condition:
+                  lambda: 'return id(blind_stepper).current_position == id(blind_stepper).target_position;'
+                timeout: 180s
+            - script.execute: disable_motor
+
+    position_action:
+      - if:
+          condition:
+            lambda: 'return id(is_homed);'
+          then:
+            - script.execute: enable_motor
+            - lambda: |-
+                id(current_target) = (int) round(pos * id(total_steps));
+            - stepper.set_target:
+                id: blind_stepper
+                target: !lambda 'return id(current_target);'
+            - wait_until:
+                condition:
+                  lambda: 'return id(blind_stepper).current_position == id(blind_stepper).target_position;'
+                timeout: 60s
+            - script.execute: disable_motor
+
+    stop_action:
+      - stepper.set_target:
+          id: blind_stepper
+          target: !lambda 'return id(blind_stepper).current_position;'
+      - script.execute: disable_motor
+
+sensor:
+  - platform: template
+    name: "Blind Position Percent"
+    lambda: |-
+      if (!id(is_homed)) return 0;
+      return 100.0 * ((float) id(blind_stepper).current_position / (float) id(total_steps));
+    update_interval: 1s

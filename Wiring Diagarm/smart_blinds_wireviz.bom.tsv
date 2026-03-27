@@ -1,0 +1,12 @@
+Id	Description	Qty	Unit	Designators
+1	Cable, 2 wires	0	m	
+2	Cable, 3 wires	0	m	
+3	Cable, 4 wires	0	m	
+4	Cable, 5 wires	0	m	
+5	Connector, 12V Power Supply, 2 pins	1		PSU_12V
+6	Connector, A3144 Hall Sensor, 3 pins	1		Hall_A3144
+7	Connector, ESP32 Dev Board, 7 pins	1		ESP32
+8	Connector, Electrolytic Capacitor, 2 pins	1		VMOT_Cap
+9	Connector, MP1584EN Buck Converter, 4 pins	1		Buck
+10	Connector, NEMA 14 Stepper Motor, 4 pins	1		Stepper
+11	Connector, TMC2209 Stepper Driver, 10 pins	1		TMC2209

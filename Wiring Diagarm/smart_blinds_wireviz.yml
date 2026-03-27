@@ -1,0 +1,146 @@
+metadata:
+  title: Smart Blinds Wiring (ESP32 + TMC2209)
+
+connectors:
+
+  # --- TOP: Hall sensor ---
+  Hall_A3144:
+    type: A3144 Hall Sensor
+    pinlabels: ["VCC", "GND", "OUT"]
+    image:
+      src: A3144_Hall_Effect.jpg
+      height: 60
+      caption: Hall Sensor
+
+  # --- Power supply ---
+  PSU_12V:
+    type: 12V Power Supply
+    pinlabels: ["+12V", "GND"]
+
+  # --- Buck converter ---
+  Buck:
+    type: MP1584EN Buck Converter
+    pinlabels: ["IN+", "IN-", "OUT+", "OUT-"]
+    image:
+      src: MP1584EN_Buck_Converter.jpg
+      height: 70
+      caption: Buck Converter
+
+  # --- ESP32 ---
+  ESP32:
+    type: ESP32 Dev Board
+    pinlabels: ["5V", "3V3", "GND", "GPIO25", "GPIO26", "GPIO27", "GPIO33"]
+    image:
+      src: ESP32.jpg
+      height: 90
+      caption: ESP32
+
+  # --- Stepper driver ---
+  TMC2209:
+    type: TMC2209 Stepper Driver
+    pinlabels: ["EN", "STEP", "DIR", "VIO", "GND", "VMOT", "A1", "A2", "B1", "B2"]
+    image:
+      src: TMC2209.png
+      height: 90
+      caption: TMC2209
+
+  # --- Bulk capacitor ---
+  VMOT_Cap:
+    type: Electrolytic Capacitor
+    pinlabels: ["+", "-"]
+    image:
+      src: 220uF_Electrolytic.jpg
+      height: 70
+      caption: 220uF VMOT Capacitor
+
+  # --- BOTTOM: Stepper motor ---
+  Stepper:
+    type: NEMA 14 Stepper Motor
+    pinlabels: ["A+", "A-", "B+", "B-"]
+    image:
+      src: NEMA14_Stepper.jpg
+      height: 90
+      caption: Stepper Motor
+
+
+cables:
+
+  PSU_to_Buck:
+    wirecount: 2
+    colors: ["RD", "BK"]
+    show_name: false
+
+  PSU_to_TMC:
+    wirecount: 2
+    colors: ["RD", "BK"]
+    show_name: false
+
+  Buck_to_ESP32:
+    wirecount: 2
+    colors: ["RD", "BK"]
+    show_name: false
+
+  ESP32_to_TMC_ctrl:
+    wirecount: 5
+    colors: ["GN", "YE", "BU", "OG", "BK"]
+    show_name: false
+
+  ESP32_to_Hall:
+    wirecount: 3
+    colors: ["RD", "BK", "VT"]
+    show_name: false
+
+  TMC_to_Stepper:
+    wirecount: 4
+    colors: ["RD", "BU", "GN", "BK"]
+    show_name: false
+
+  Cap_to_TMC:
+    wirecount: 2
+    colors: ["RD", "BK"]
+    show_name: false
+
+
+connections:
+
+  # Hall sensor at top
+  -
+    - ESP32: ["3V3", "GND", "GPIO33"]
+    - ESP32_to_Hall: [1, 2, 3]
+    - Hall_A3144: ["VCC", "GND", "OUT"]
+
+  # PSU → Buck
+  -
+    - PSU_12V: ["+12V", "GND"]
+    - PSU_to_Buck: [1, 2]
+    - Buck: ["IN+", "IN-"]
+
+  # PSU → Driver VMOT
+  -
+    - PSU_12V: ["+12V", "GND"]
+    - PSU_to_TMC: [1, 2]
+    - TMC2209: ["VMOT", "GND"]
+
+  # Capacitor across VMOT
+  -
+    - TMC2209: ["VMOT", "GND"]
+    - Cap_to_TMC: [1, 2]
+    - VMOT_Cap: ["+", "-"]
+
+  # Buck → ESP32 power
+  -
+    - Buck: ["OUT+", "OUT-"]
+    - Buck_to_ESP32: [1, 2]
+    - ESP32: ["5V", "GND"]
+
+  # ESP32 → Driver control
+  -
+    - ESP32: ["GPIO25", "GPIO26", "GPIO27", "3V3", "GND"]
+    - ESP32_to_TMC_ctrl: [1, 2, 3, 4, 5]
+    - TMC2209: ["EN", "STEP", "DIR", "VIO", "GND"]
+
+  # Driver → Stepper (bottom)
+  -
+    - TMC2209: ["A1", "A2", "B1", "B2"]
+    - TMC_to_Stepper: [1, 2, 3, 4]
+    - Stepper: ["A+", "A-", "B+", "B-"]
